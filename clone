@@ -1,0 +1,74 @@
+#!/bin/bash
+
+if [ "$#" -ne 7 ]; then
+    echo "Illegal number of parameters"
+    exit 1
+fi
+
+###########################
+####### SVN
+# SVN repository to be migrated
+SVN_HOST=$1
+SVN_USER=$2
+SVN_PASSWORD=$3
+SVN_BRANCHES=$4
+SVN_TAGS=$5
+SVN_TRUNK=$6
+
+####### Project name #######
+PROJECT_NAME=$7
+
+BASE_SVN="$SVN_HOST/$PROJECT_NAME"
+SVN_ARGS=" --non-interactive --username=$SVN_USER --password=$SVN_PASSWORD"
+
+####### Removes slashes from the project name and replace it with underscore
+PROJECT_NAME=${PROJECT_NAME//[\/]/_}
+
+# Geral Configuration
+ABSOLUTE_PATH=$(pwd)
+TMP=$ABSOLUTE_PATH/"migration-"$PROJECT_NAME
+
+AUTHORS=$TMP/$PROJECT_NAME"-authors.txt"
+
+echo '[LOG] Starting migration of '$SVN_TRUNK
+echo '[LOG] Using: '$(git --version)
+echo '[LOG] Using: '$(svn --version | grep svn,)
+
+if [ ! -d "$TMP" ]; then
+  # Control will enter here if $DIRECTORY doesn't exist.
+  mkdir $TMP
+fi
+
+cd $TMP
+
+echo
+echo '[LOG] Getting SSL certificates'
+svn info $BASE_SVN $SVN_ARGS
+
+#echo
+#echo '[LOG] Checking the authors file'
+if [ ! -f $AUTHORS ]; then
+    echo "Authors file not found!"
+    exit 1
+fi
+
+echo
+echo '[RUN] git svn clone --authors-file='$AUTHORS' --prefix=origin/ --trunk='$SVN_TRUNK' --branches='$SVN_BRANCHES' --tags='$SVN_TAGS $BASE_SVN $TMP
+clone() {
+    git svn clone --authors-file=$AUTHORS --prefix=origin/ --trunk=$SVN_TRUNK --branches=$SVN_BRANCHES --tags=$SVN_TAGS $BASE_SVN $TMP
+
+    OUTPUT=$?
+}
+
+retry() {
+    git svn fetch
+
+    OUTPUT=$?
+}
+
+clone
+while [[ $OUTPUT -ne 0 ]]; do
+    retry
+done
+
+echo 'Sucessufull cloned.'

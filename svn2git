@@ -1,0 +1,71 @@
+#!/bin/bash
+
+################################################################################
+### READ PROPERTIES FILES
+################################################################################
+file=".properties"
+
+if [ -f "$file" ]
+then
+    while IFS='=' read -r key value
+    do
+        key=$(echo $key | tr '.' '_')
+        eval ${key}=\${value}
+    done < "$file"
+else
+    echo "File $file not found."
+    exit 1
+fi
+
+################################################################################
+### GLOBAL VARIABLES
+################################################################################
+title='Tool to migrate repositories from SVN to Git'
+
+options=("1) Generate authors file"
+         "2) Clone repository"
+         "3) Migrate repository"
+         "Other: Quit")
+
+echo '-------------------------------------------------------------------------'
+echo "$title"
+echo '-------------------------------------------------------------------------'
+for each in "${options[@]}"
+do
+  echo "$each"
+done
+echo '-------------------------------------------------------------------------'
+echo 'Please enter your choice: '
+
+read n
+case $n in
+    1)
+        echo "Enter project name and svn password"
+        read -p 'Project name: ' project_name
+        read -sp 'Subversion Password: ' svn_password
+        echo
+
+        ./gen_authors $domain_name $svn_host $svn_user $svn_password $project_name
+        ;;
+    2)
+        echo "Enter project name and svn password"
+        read -p 'Project name: ' project_name
+        read -sp 'Subversion Password: ' svn_password
+        echo
+
+        ./clone $svn_host $svn_user $svn_password $svn_branches $svn_tags $svn_trunk $project_name
+        ;;
+    3)
+        echo "Enter project name, username and password"
+        read -p 'Project name: ' project_name
+        read -sp 'Subversion Password: ' svn_password
+        echo
+        read -sp 'Git Password: ' git_password
+        echo
+
+        ./migrate $svn_host $svn_user $svn_password $svn_branches $svn_tags $svn_trunk $git_host $git_protocol $git_user $git_password $project_name
+        ;;
+    *)
+        echo "You've entered an invalid option [$n]"
+        ;;
+esac

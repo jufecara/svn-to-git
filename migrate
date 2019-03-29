@@ -1,106 +1,124 @@
 #!/bin/bash
 
-####### Project name 
-PROJECT_NAME="myproject"
-EMAIL="mycompany.com"
+if [ "$#" -ne 11 ]; then
+    echo "Illegal number of parameters"
+    exit 1
+fi
 
 ###########################
-####### SVN 
+####### SVN
 # SVN repository to be migrated
-BASE_SVN="http://svn.mycompany.com/svn/repo/sistemas/myproject"
+SVN_HOST=$1
+SVN_USER=$2
+SVN_PASSWORD=$3
+SVN_BRANCHES=$4
+SVN_TAGS=$5
+SVN_TRUNK=$6
 
-# Organization inside BASE_SVN
-BRANCHES="branches"
-TAGS="tags"
-TRUNK="trunk"
+####### Project name #######
+PROJECT_NAME=${11}
+
+BASE_SVN="$SVN_HOST/$PROJECT_NAME"
+SVN_ARGS=" --non-interactive --username=$SVN_USER --password=$SVN_PASSWORD"
+
+####### Removes slashes from the project name and replace it with underscore
+PROJECT_NAME=${PROJECT_NAME//[\/]/_}
 
 ###########################
-####### GIT 
+####### GIT
 # Git repository to migrate
-GIT_URL="https://git.mycompany.com/git/repo/sistemas/myproject.git"
-
-###########################
-#### Don't need to change from here
-###########################
-
-#STYLE_COLOR
-RED='\033[0;31m';
-LIGHT_GREEN='\e[1;32m';
-NC='\033[0m' # No Color
-
+GIT_URL="$8://$9@$7/$9/${PROJECT_NAME}.git"
 
 # Geral Configuration
 ABSOLUTE_PATH=$(pwd)
 TMP=$ABSOLUTE_PATH/"migration-"$PROJECT_NAME
 
 # Branchs Configuration
-SVN_BRANCHES=$BASE_SVN/$BRANCHES
-SVN_TAGS=$BASE_SVN/$TAGS
-SVN_TRUNK=$BASE_SVN/$TRUNK
+SVN_BRANCHES=$BASE_SVN/$SVN_BRANCHES
+SVN_TAGS=$BASE_SVN/$SVN_TAGS
+SVN_TRUNK=$BASE_SVN/$SVN_TRUNK
 
-AUTHORS=$PROJECT_NAME"-authors.txt"
+echo '[LOG] Starting migration of '$SVN_TRUNK
+echo '[LOG] Using: '$(git --version)
+echo '[LOG] Using: '$(svn --version | grep svn,)
 
-echo -e "${LIGHT_GREEN} [LOG] Starting migration of ${NC}" $SVN_TRUNK
-echo -e "${LIGHT_GREEN} [LOG] Using: ${NC}" $(git --version)
-echo -e "${LIGHT_GREEN} [LOG] Using: ${NC}"  $(svn --version | grep svn,)
-echo
-echo
-echo -e "${LIGHT_GREEN} [LOG] Step 01/08 Create Directories ${NC}" $TMP
+if [ ! -d "$TMP" ]; then
+  # Control will enter here if $DIRECTORY doesn't exist.
+  mkdir $TMP
+fi
 
-
-mkdir $TMP
 cd $TMP
 
 echo
-echo -e "${LIGHT_GREEN} [LOG] Step 02/08 Getting authors ${NC}"
-svn log -q $BASE_SVN | awk -F '|' '/^r/ {sub("^ ", "", $2); sub(" $", "", $2); print $2" = "$2" <"$2"@"$EMAIL">"}' | sort -u >> $AUTHORS
+echo '[LOG] Getting SSL certificates'
+svn info $BASE_SVN $SVN_ARGS
 
 echo
-echo -e "${LIGHT_GREEN} [RUN] Step 03/08"
-echo 'git svn clone --authors-file='$AUTHORS' --trunk='$TRUNK' --branches='$BRANCHES' --tags='$TAGS $BASE_SVN $TMP
-echo -e "${NC}"
-
-git svn clone --authors-file=$AUTHORS --trunk=$TRUNK --branches=$BRANCHES --tags=$TAGS $BASE_SVN $TMP
+echo '[LOG] Getting first revision'
+FIRST_REVISION=$( svn log -r 1:HEAD --limit 1 $BASE_SVN $SVN_ARGS | awk -F '|' '/^r/ {sub("^ ", "", $1); sub(" $", "", $1); print $1}' )
 
 echo
-echo -e "${LIGHT_GREEN} [LOG] Step 04/08  Getting first revision ${NC}"
-FIRST_REVISION=$( svn log -r 1:HEAD --limit 1 $BASE_SVN | awk -F '|' '/^r/ {sub("^ ", "", $1); sub(" $", "", $1); print $1}' )
-
-echo
-echo -e "${LIGHT_GREEN} [RUN] Step 05/08 ${NC}"
-echo 'git svn fetch -'$FIRST_REVISION':HEAD'
+echo '[RUN] git svn fetch -'$FIRST_REVISION':HEAD'
 git svn fetch -$FIRST_REVISION:HEAD
 
+# Cache the credentials
+git config credential.helper 'cache --timeout=3600'
+
 echo
-echo -e "${LIGHT_GREEN} [RUN] Step 06/08 ${NC}"
-echo 'git remote add origin '$GIT_URL
+echo '[RUN] git remote add origin '$GIT_URL
 git remote add origin $GIT_URL
 
 echo
-echo -e "${LIGHT_GREEN} [RUN] Step 07/08 ${NC}"
-echo 'svn ls '$SVN_BRANCHES
-
+echo '[RUN] create local branches matching subversion'
 for BRANCH in $(svn ls $SVN_BRANCHES); do
-    echo git branch ${BRANCH%/} remotes/svn/${BRANCH%/}
-    git branch ${BRANCH%/} remotes/svn/${BRANCH%/}
+    echo git branch ${BRANCH%/} remotes/${BRANCH%/}
+    git branch ${BRANCH%/} remotes/${BRANCH%/}
 done
 
-git for-each-ref --format="%(refname:short) %(objectname)" refs/remotes/origin/tags | grep -v "@" | cut -d / -f 3- |
-while read ref
+echo '[RUN] create tags matching subversion'
+git for-each-ref --format="%(refname:short) %(objectname)" refs/remotes/origin/tags  |
+while read BRANCH REF
 do
-  echo git tag -a $ref -m 'import tag from svn'
-  git tag -a $ref -m 'import tag from svn'
+    TAG_NAME=${BRANCH#*/}
+    BODY="$(git log -1 --format=format:%B $REF)"
+
+    echo "ref=$REF parent=$(git rev-parse $REF^) tagname=$TAG_NAME body=$BODY" >&2
+
+    git tag -a -m "$BODY" $TAG_NAME $REF^  && git branch -r -d $BRANCH
 done
 
-git for-each-ref --format="%(refname:short)" refs/remotes/origin/tags | cut -d / -f 1- |
-while read ref
-do
-  git branch -rd $ref
-done
 
+push() {
+    # Keep the ignore settings
+    git svn show-ignore -i trunk > .gitignore
+    git add .gitignore
+    git commit -m 'Convert svn:ignore properties to .gitignore.'
+
+    # Removes the validation of SSL certs
+    git config --global http.sslVerify false
+
+    # Reassign the branches
+    cp -rf .git/refs/remotes/origin/tags/* .git/refs/tags/
+    rm -rf .git/refs/remotes/origin/tags
+    cp -rf .git/refs/remotes/origin/* .git/refs/heads/
+    rm -rf .git/refs/remotes/origin
+
+    # Delete the branch trunk
+    git branch -d trunk
+
+    # Push to remote all the branches and tags
+    git push origin --all
+    git push origin --tags
+
+    OUTPUT=$?
+}
 echo
-echo -e "${LIGHT_GREEN} [RUN] Step 08/08 [RUN] git push ${NC}"
-git push origin --all --force
-git push origin --tags
+echo '[RUN] git push'
 
-echo 'Sucessufull.'
+# Call the function to push
+push
+if [[ $OUTPUT -eq 0 ]]; then
+    echo 'Sucessufull.'
+else
+    echo 'Error!'
+fi

@@ -1,27 +1,31 @@
-# Migration
+# Migration Tool
 
 Script to help migrate code from SVN to GIT without losing commits history, tags and branchs.
 
-## Requirements
+## Requirements/Dependencies
 
 ```
-apt-get install git git-svn subversion
+ sudo apt-get install git-core subversion git-svn
 ```
 
 ## Configuration
-Change the variables:
-* PROJECT_NAME : Name of your project 
-* EMAIL : Emails organization
-* BASE_SVN : The url to SVN repository to be migrated
-* BRANCHES : The branches folder inside BASE_SVN
-* TAGS : The tags folder inside BASE_SVN
-* TRUNK : The trunk folder inside BASE_SVN
-* GIT_URL : The url to Git repository to migrate
+Change the variables in the properties file:
+
+* domain.name=company.com
+* svn.host=https://svn.company.com
+* svn.user=username
+* svn.password=
+* svn.branches=branches
+* svn.tags=tags
+* svn.trunk=trunk
+* svn.include-paths=
+* git.host=git.company.com
+* git.protocol=https
+* git.user=username
+* git.password=
 
 ## Execution
 
 ```
-./migrate
+nohup ./svntogit &
 ```
-
-Enjoy it.
